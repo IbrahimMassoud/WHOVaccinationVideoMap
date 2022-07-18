@@ -1,0 +1,344 @@
+<html>
+
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="initial-scale=1,maximum-scale=1,user-scalable=no" />
+  <title>
+    TimeSlider with timeOffset and actions | Sample | ArcGIS API for
+    JavaScript 4.24
+  </title>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/2.4.0/Chart.min.js"></script>
+  <link rel="stylesheet" href="https://js.arcgis.com/4.24/esri/themes/dark/main.css" />
+  <script src="https://js.arcgis.com/4.24/"></script>
+
+  <style>
+    html,
+    body,
+    #viewDiv {
+      padding: 0;
+      margin: 0;
+      height: 100%;
+      width: 100%;
+      background-color: black;
+    }
+
+    #timeSliderDiv {
+      position: absolute;
+      left: 5%;
+      right: 5%;
+      bottom: 20px;
+    }
+
+    #infoDiv {
+      height: 380px;
+      padding: 10px;
+      width: 320px;
+      border: 1px solid #444;
+    }
+
+    #infoDiv span {
+      color: #ff642e;
+      font-size: 12pt;
+      font-weight: bolder;
+    }
+
+    /* esri overrides */
+    .esri-ui-corner .esri-component.esri-widget--panel {
+      width: 120px;
+    }
+
+    .esri-legend__service {
+      padding: 0;
+      padding-top: 4px;
+    }
+
+    .esri-legend__layer-caption {
+      display: none;
+    }
+
+    .esri-legend__layer {
+      overflow: hidden;
+    }
+  </style>
+  <script>
+    require([
+      "esri/Map",
+      "esri/layers/FeatureLayer",
+      "esri/views/MapView",
+      "esri/widgets/Legend",
+      "esri/widgets/Expand",
+      "esri/widgets/TimeSlider",
+      "esri/core/reactiveUtils",
+      "esri/core/promiseUtils",
+      "esri/renderers/ClassBreaksRenderer"
+    ], (
+      Map,
+      FeatureLayer,
+      MapView,
+      Legend,
+      Expand,
+      TimeSlider,
+      reactiveUtils,
+      promiseUtils,
+      ClassBreaksRenderer
+    ) => {
+      let timeSlider, firesChart;
+      const map = new Map({
+        basemap: {
+          portalItem: {
+            id: "4f2e99ba65e34bb8af49733d9778fb8e"
+          }
+        }
+      });
+
+      const view = new MapView({
+        container: "viewDiv",
+        map: map,
+        zoom: 3,
+        center: [30, 18] // longitude, latitude
+      });
+
+      // create five new instances of feature layers
+      // based on the following definitions
+      const url =
+        "https://services3.arcgis.com/1FS0hEOLnjHnov75/arcgis/rest/services/WHO_Vaccination_StoryMap/FeatureServer/0";
+      const definitions = [
+        { id: 0, year: 2014, offset: 4 },
+
+      ];
+
+      const layers = definitions.map((definition) => {
+        return createLayer(definition);
+      });
+
+      function createSymbol(color) {
+        return {
+          type: "simple-fill",
+          color,
+          style: "solid",
+          outline: {
+            width: 0.2,
+            color: [255, 255, 255, 0.2]
+          }
+        };
+      }
+
+
+      const renderer = new ClassBreaksRenderer({
+        field: "Percentage",
+        legendOptions: {
+          title: "% of adults with no high school education"
+        },
+        defaultSymbol: {
+          type: "simple-fill",
+          color: "black",
+          style: "backward-diagonal",
+          outline: {
+            width: 0.5,
+            color: [50, 50, 50, 0.6]
+          }
+        },
+        defaultLabel: "no data",
+        classBreakInfos: [
+          {
+            minValue: 0,
+            maxValue: 9.99,
+            symbol: createSymbol("#edf8fb"),
+            label: "< 10%"
+          },
+          {
+            minValue: 10,
+            maxValue: 29.999,
+            symbol: createSymbol("#b3cde3"),
+            label: "10 - 30%"
+          },
+          {
+            minValue: 30,
+            maxValue: 49.9999,
+            symbol: createSymbol("#8c96c6"),
+            label: "30 - 50%"
+          },
+          {
+            minValue: 50,
+            maxValue: 100,
+            symbol: createSymbol("#88419d"),
+            label: "> 50%"
+          }
+        ]
+      });
+      renderer.visualVariables = [{
+        type: "size",
+        valueExpression: "$view.scale",
+        target: "outline",
+        stops: [
+          { size: 2, value: 56187 },
+          { size: 1, value: 175583 },
+          { size: 0.5, value: 702332 },
+          { size: 0, value: 1404664 }
+        ]
+      }];
+      layers[0].renderer = renderer
+      console.log(layers)
+      // add the california fire layers
+      map.addMany(layers);
+
+      // get layerviews of each fire layers once the layers are loaded
+      const layerViewsEachAlways = () => {
+        return promiseUtils.eachAlways(
+          layers.map((layer) => {
+            return view.whenLayerView(layer);
+          })
+        );
+      };
+
+      view.when(() => {
+        timeSlider = new TimeSlider({
+          container: "timeSliderDiv",
+          view: view,
+          mode: "instant",
+          actions: [
+            {
+              id: "quake",
+              icon: "exclamation-mark-triangle",
+              title: "Jump to Earthquake"
+            },
+            {
+              id: "quake-plus-one-month",
+              icon: "organization",
+              title: "One month later"
+            }
+          ]
+          ,
+          fullTimeExtent: {
+            start: new Date(2021, 2, 13),
+            end: new Date(2022, 4, 14)
+          },
+          timeExtent: {
+            start: new Date(2021, 2, 13),
+            end: new Date(2021, 2, 13)
+          },
+          playRate: 1000,
+          stops: {
+            interval: {
+              value: 1,
+              unit: "weeks"
+            }
+          },
+
+          // set custom labels for the timeslider's min, max dates
+          // then hide the extent label
+          labelFormatFunction: (value, type, element, layout) => {
+            const normal = new Intl.DateTimeFormat("en-us");
+            // console.log(value,"value")
+            switch (type) {
+              case "min":
+                element.setAttribute("style", "color: #ff642e;");
+                element.innerText = "Jan";
+                break;
+              case "max":
+                element.setAttribute("style", "color: #ff642e;");
+                element.innerText = "Dec";
+                break;
+              case "extent":
+                element.parentNode.setAttribute("style", "width:0px");
+                break;
+            }
+          }
+        });
+        console.log(timeSlider)
+        timeSlider.layout = "compact";
+
+
+        timeSlider.watch("timeExtent", (event) => {
+          console.log(timeSlider.timeExtent.end)
+
+        });
+
+        timeSlider.on("trigger-action", (event) => {
+          switch (event.action.id) {
+            case "quake":
+              
+              timeSlider.playRate = timeSlider.playRate / 2
+              setTimeout(function(){
+                if (timeSlider.viewModel.state != "playing") {
+                timeSlider.play();
+              }
+                }, 1000);
+
+              
+              break;
+            case "quake-plus-one-month":
+              console.log()
+              break;
+            default:
+
+
+          }
+        });
+
+      });
+
+      // fire stats for each year between 2014 - 2018
+
+
+
+
+      // This function is called when the timeSlider's timeExtent changes
+      // It queries each layer view for fire stats and updates the chart
+      function updateFiresStats() { }
+
+      // Creates five instances of feature layers each representing
+      // fires for the given year (between 2014 - 2018)
+      function createLayer(definition) {
+        const year = definition.year;
+
+        return new FeatureLayer({
+          url: url
+          //  + definition.id,
+          // timeOffset: {
+          //   value: definition.offset,
+          //   unit: "years"
+          // }
+          ,
+          outFields: ["*"],
+          popupTemplate: {
+            title: "{ALARM_DATE}",
+            content: "{Week}, {Year}, "
+          }
+        });
+      }
+
+
+      // create the legend
+      const layerInfos = layers.map((layer, i) => {
+        return {
+          title: "",
+          layer: layer
+        };
+      });
+
+      const legend = new Legend({
+        view: view,
+        layerInfos: layerInfos
+      });
+      view.ui.move("zoom", "top-right");
+      view.ui.add(legend, "top-left");
+
+    });
+  </script>
+</head>
+
+<body>
+  <div id="viewDiv"></div>
+  <div id="timeSliderDiv"></div>
+  <div id="infoDiv" class="esri-widget">
+    <div class="esri-widget__heading">
+      <h4>California fires 2014 - 2018</h4>
+    </div>
+    <div id="monthDiv"></div>
+    <br />
+    <canvas id="fireChart" height="250" width="300" class="esri-widget"></canvas>
+  </div>
+</body>
+
+</html>
